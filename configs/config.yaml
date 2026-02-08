@@ -1,0 +1,12 @@
+# run-anime 기본 설정 템플릿
+# 실제 런타임 설정은 OS별 앱 설정 디렉터리의 config.yaml 사용
+
+server:
+  port: 8765
+
+overlay:
+  width: 128
+  height: 128
+
+# 스프라이트 목록 (path, rows/cols 또는 단일 이미지, 위치, 우선순위)
+sprites: []
