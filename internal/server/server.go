@@ -6,57 +6,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"RunAnime/internal/config"
 	"RunAnime/internal/display"
+	"RunAnime/internal/overlay"
 	"RunAnime/internal/settings"
 	"RunAnime/internal/storage"
 )
-
-const debugLogPath = "/Users/jiseunglyeol/code/run-anime/.cursor/debug.log"
-
-func debugLog(hypothesisId, location, message string, data map[string]interface{}) {
-	payload := map[string]interface{}{
-		"hypothesisId": hypothesisId,
-		"location":     location,
-		"message":      message,
-		"data":         data,
-		"timestamp":    time.Now().UnixMilli(),
-	}
-	line, _ := json.Marshal(payload)
-	f, err := os.OpenFile(debugLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	f.Write(append(line, '\n'))
-	f.Close()
-}
-
-type debugResponseWriter struct {
-	http.ResponseWriter
-	status        int
-	contentLength int64
-	bytesWritten  int64
-}
-
-func (d *debugResponseWriter) WriteHeader(code int) {
-	if cl := d.ResponseWriter.Header().Get("Content-Length"); cl != "" {
-		fmt.Sscanf(cl, "%d", &d.contentLength)
-	}
-	d.status = code
-	d.ResponseWriter.WriteHeader(code)
-}
-
-func (d *debugResponseWriter) Write(p []byte) (n int, err error) {
-	n, err = d.ResponseWriter.Write(p)
-	d.bytesWritten += int64(n)
-	return n, err
-}
 
 const maxUploadMem = 10 << 20 // 10 MiB for multipart form
 
@@ -175,8 +134,9 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 	for i := range body.Monitors {
 		old := curByID[body.Monitors[i].ID].BackgroundImage
 		newRel := relPath(body.Monitors[i].BackgroundImage)
-		if old != "" && old != newRel {
-			if err := storage.RemoveUpload(old); err != nil {
+		oldRel := relPath(old)
+		if oldRel != "" && newRel != "" && oldRel != newRel {
+			if err := storage.RemoveUpload(oldRel); err != nil {
 				log.Printf("remove old background: %v", err)
 			}
 		}
@@ -201,8 +161,9 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			newRel := relPath(body.Animes[i].States[j].SpritePath)
-			if old != "" && old != newRel {
-				if err := storage.RemoveUpload(old); err != nil {
+			oldRel := relPath(old)
+			if oldRel != "" && newRel != "" && oldRel != newRel {
+				if err := storage.RemoveUpload(oldRel); err != nil {
 					log.Printf("remove old sprite: %v", err)
 				}
 			}
@@ -236,6 +197,7 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save settings", http.StatusInternalServerError)
 		return
 	}
+	overlay.NotifySettingsChanged()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resolveUploadURLs(&body)); err != nil {
 		log.Printf("settings encode: %v", err)
@@ -369,11 +331,6 @@ func handleUploads(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := filepath.Join(dir, filepath.FromSlash(name))
-	// #region agent log
-	debugLog("H1", "server.go:handleUploads", "resolved path", map[string]interface{}{
-		"urlPath": r.URL.Path, "name": name, "dir": dir, "path": path,
-	})
-	// #endregion
 	// Ensure path is under dir (no symlink escape)
 	absDir, _ := filepath.Abs(dir)
 	absPath, _ := filepath.Abs(path)
@@ -381,30 +338,7 @@ func handleUploads(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	// #region agent log
-	stat, statErr := os.Stat(path)
-	exists := statErr == nil
-	isDir := exists && stat.IsDir()
-	size := int64(0)
-	if exists && stat != nil {
-		size = stat.Size()
-	}
-	debugLog("H2", "server.go:handleUploads", "file stat before ServeFile", map[string]interface{}{
-		"absPath": absPath, "exists": exists, "isDir": isDir, "size": size, "statErr": fmt.Sprint(statErr),
-	})
-	// #endregion
 	// Ignore Range so we always return 200 with full body; 206 + partial bytes breaks image display.
 	r.Header.Del("Range")
-	// #region agent log
-	debugLog("H3", "server.go:handleUploads", "calling ServeFile", map[string]interface{}{
-		"path": path, "fileSize": size,
-	})
-	rw := &debugResponseWriter{ResponseWriter: w, status: 0, contentLength: -1, bytesWritten: 0}
-	// #endregion
-	http.ServeFile(rw, r, path)
-	// #region agent log
-	debugLog("H4", "server.go:handleUploads", "after ServeFile", map[string]interface{}{
-		"status": rw.status, "contentLengthHeader": rw.contentLength, "bytesWritten": rw.bytesWritten,
-	})
-	// #endregion
+	http.ServeFile(w, r, path)
 }

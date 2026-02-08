@@ -42,9 +42,24 @@ func CategoryDir(category string) (string, error) {
 	return filepath.Join(d, category), nil
 }
 
+// RelPath normalizes a path that may be "/api/uploads/..." or "category/filename" to relative form "category/filename".
+// Use this before joining with Dir() so settings-stored paths work whether they are API-style or relative.
+func RelPath(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "data:") {
+		return ""
+	}
+	if strings.HasPrefix(s, "/api/uploads/") {
+		return strings.TrimPrefix(s, "/api/uploads/")
+	}
+	return s
+}
+
 // RemoveUpload deletes the file at the given relative path (e.g. "backgrounds/bg-xxx.jpg")
 // if it is under the uploads directory. Safe to call if the file is already gone.
+// Pass RelPath(path) if path may be "/api/uploads/...".
 func RemoveUpload(relativePath string) error {
+	relativePath = RelPath(relativePath)
 	if relativePath == "" || strings.Contains(relativePath, "..") {
 		return nil
 	}
