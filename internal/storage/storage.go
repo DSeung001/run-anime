@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"image"
-	_ "image/gif"
+	"image/gif"
 	"image/jpeg"
 	_ "image/png"
 	"io"
@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	CategorySprites     = "sprites"
 	CategoryBackgrounds = "backgrounds"
+	CategoryAnime       = "anime"
 )
 
 // Dir returns the OS-specific root directory for uploaded assets (runanime/uploads).
@@ -33,7 +33,7 @@ func Dir() (string, error) {
 	return filepath.Join(configDir, "runanime", "uploads"), nil
 }
 
-// CategoryDir returns Dir()/category (e.g. .../uploads/sprites).
+// CategoryDir returns Dir()/category (e.g. .../uploads/anime).
 func CategoryDir(category string) (string, error) {
 	d, err := Dir()
 	if err != nil {
@@ -97,13 +97,13 @@ func EnsureCategoryDir(category string) (string, error) {
 	return dir, os.MkdirAll(dir, 0755)
 }
 
-// prefixForCategory returns the file prefix for a category (sprite, bg).
+// prefixForCategory returns the file prefix for a category (bg, anime).
 func prefixForCategory(category string) string {
 	switch category {
-	case CategorySprites:
-		return "sprite"
 	case CategoryBackgrounds:
 		return "bg"
+	case CategoryAnime:
+		return "anime"
 	default:
 		return "file"
 	}
@@ -126,7 +126,7 @@ func extFromMIME(mime string) string {
 	}
 }
 
-// generateAssetFilename returns prefix-16hex.ext (e.g. sprite-a1b2c3d4e5f67890.png).
+// generateAssetFilename returns prefix-16hex.ext (e.g. anime-a1b2c3d4e5f67890.png).
 func generateAssetFilename(prefix, ext string) (string, error) {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
@@ -136,7 +136,7 @@ func generateAssetFilename(prefix, ext string) (string, error) {
 }
 
 // SaveBase64Image decodes a data URL and saves under the given category.
-// Returns relative path "category/filename" (e.g. sprites/sprite-xxx.png).
+// Returns relative path "category/filename" (e.g. anime/anime-xxx.png).
 func SaveBase64Image(dataURL string, category string) (string, error) {
 	const prefixLen = 22
 	if len(dataURL) < prefixLen || dataURL[:5] != "data:" {
@@ -183,13 +183,96 @@ func SaveBase64Image(dataURL string, category string) (string, error) {
 	return category + "/" + name, nil
 }
 
+// ExtractGIFDisposal extracts disposal methods from a base64-encoded GIF image.
+// Returns nil if the image is not a GIF or if extraction fails.
+func ExtractGIFDisposal(dataURL string) ([]byte, error) {
+	const prefixLen = 22
+	if len(dataURL) < prefixLen || dataURL[:5] != "data:" {
+		return nil, fmt.Errorf("invalid data URL")
+	}
+
+	// Check if it's a GIF
+	if !strings.Contains(dataURL, "image/gif") {
+		return nil, nil // Not a GIF, return nil (not an error)
+	}
+
+	// Find the comma separator
+	i := 0
+	for i < len(dataURL) && dataURL[i] != ',' {
+		i++
+	}
+	if i >= len(dataURL) {
+		return nil, fmt.Errorf("invalid data URL: no comma")
+	}
+
+	enc := dataURL[i+1:]
+	decoded, err := base64.StdEncoding.DecodeString(enc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Decode GIF to extract disposal methods
+	gifImg, err := gif.DecodeAll(bytes.NewReader(decoded))
+	if err != nil {
+		return nil, err
+	}
+
+	// Normalize disposal array to match frame count
+	frameCount := len(gifImg.Image)
+	if frameCount == 0 {
+		return nil, fmt.Errorf("GIF contains no frames")
+	}
+
+	disposals := gifImg.Disposal
+	if disposals == nil || len(disposals) < frameCount {
+		// Fill missing parts with default value (0 = DisposalNone)
+		normalized := make([]byte, frameCount)
+		if disposals != nil {
+			copy(normalized, disposals)
+		}
+		// Remaining bytes are already initialized to 0
+		return normalized, nil
+	}
+
+	return disposals, nil
+}
+
+// NormalizeGIFDisposal normalizes a disposal array to match the frame count of a GIF file.
+// Applies the selected value to all frames.
+// Returns the normalized disposal array.
+func NormalizeGIFDisposal(filePath string, selectedValue byte) ([]byte, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	gifImg, err := gif.DecodeAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	frameCount := len(gifImg.Image)
+	if frameCount == 0 {
+		return nil, fmt.Errorf("GIF contains no frames")
+	}
+
+	// Create disposal array with selected value for all frames
+	normalized := make([]byte, frameCount)
+	for i := 0; i < frameCount; i++ {
+		normalized[i] = selectedValue
+	}
+
+	return normalized, nil
+}
+
 // SaveUploadedFile reads an image from src and saves it under the given category.
 // contentType should be image/png, image/jpeg, image/gif, or image/webp.
 // Returns relative path "category/filename".
 func SaveUploadedFile(src io.Reader, contentType, category string) (relativePath string, err error) {
 	ext := extFromMIME(contentType)
 	switch category {
-	case CategorySprites, CategoryBackgrounds:
+	case CategoryBackgrounds, CategoryAnime:
 		// ok
 	default:
 		return "", fmt.Errorf("invalid category: %s", category)
@@ -219,7 +302,7 @@ func SaveUploadedFile(src io.Reader, contentType, category string) (relativePath
 // SaveFromPath copies a file from the given absolute path into the category directory.
 // Content type is inferred from file extension. Returns relative path "category/filename".
 func SaveFromPath(absPath, category string) (string, error) {
-	if category != CategorySprites && category != CategoryBackgrounds {
+	if category != CategoryBackgrounds && category != CategoryAnime {
 		return "", fmt.Errorf("invalid category: %s", category)
 	}
 	ext := strings.ToLower(filepath.Ext(absPath))
@@ -325,7 +408,7 @@ func ReadAndCompressToMaxBytes(absPath string, maxBytes int64) ([]byte, string, 
 // If the file size is greater than maxBytes, it is decoded, resized/compressed to fit within maxBytes, then saved as JPEG.
 // If the file size is <= maxBytes, it is saved as-is (same as SaveFromPath).
 func SaveFromPathWithMaxSize(absPath, category string, maxBytes int64) (string, error) {
-	if category != CategorySprites && category != CategoryBackgrounds {
+	if category != CategoryBackgrounds && category != CategoryAnime {
 		return "", fmt.Errorf("invalid category: %s", category)
 	}
 	info, err := os.Stat(absPath)

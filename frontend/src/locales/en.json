@@ -18,7 +18,7 @@
   "addState": "Add State",
   "stateName": "State Name",
   "duration": "Base Duration (ms)",
-  "uploadSprite": "Upload Sprite Image",
+  "uploadImg": "Upload GIF, PNG, JPG",
   "selectFile": "Browse & Select File",
   "rows": "Rows",
   "cols": "Cols",
@@ -65,5 +65,10 @@
   "loading": "Loading…",
   "uploadLimit": "Max 10MB · PNG, JPEG, GIF, WebP",
   "uploadTooLarge": "File is too large. Maximum size is 10MB.",
-  "uploadInvalidType": "Unsupported format. Only PNG, JPEG, GIF, and WebP are allowed."
+  "uploadInvalidType": "Unsupported format. Only PNG, JPEG, GIF, and WebP are allowed.",
+  "gifDisposal": "GIF Frame Disposal Method",
+  "gifDisposalDesc": "Apply the same disposal method to all frames.",
+  "disposalNone": "Accumulate (Keep Previous Frame)",
+  "disposalBackground": "Independent Frame (Restore to Background)",
+  "disposalPrevious": "Restore to Previous State"
 }

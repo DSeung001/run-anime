@@ -18,16 +18,17 @@ type Monitor struct {
 	BackgroundImage string `json:"backgroundImage"` // URL path or empty; not base64 in stored JSON
 }
 
-// State represents an emotion state with sprite and chat messages.
+// State represents an emotion state with image and chat messages.
 type State struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	SpritePath     string   `json:"spritePath"` // URL path or empty
-	Rows           int      `json:"rows"`
-	Cols           int      `json:"cols"`
-	Duration       int      `json:"duration"`
-	FrameDurations []int    `json:"frameDurations"`
-	Chats          []string `json:"chats"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	SpritePath  string   `json:"spritePath"` // URL path or empty (kept for compatibility)
+	Chats       []string `json:"chats"`
+	X           int      `json:"x,omitempty"`           // Position X in per-mille (0-1000), 0 means use Anime's X
+	Y           int      `json:"y,omitempty"`           // Position Y in per-mille (0-1000), 0 means use Anime's Y
+	Width       int      `json:"width,omitempty"`       // Width in per-mille (0-1000), 0 means use Anime's Width
+	Height      int      `json:"height,omitempty"`      // Height in per-mille (0-1000), 0 means use Anime's Height
+	GIFDisposal []byte   `json:"gifDisposal,omitempty"` // GIF disposal methods for each frame (extracted on upload)
 }
 
 // Anime represents a character with position and states.
@@ -125,10 +126,10 @@ func Default() *Settings {
 				X:         100,
 				Y:         100,
 				States: []State{
-					{ID: "s1", Name: "기본", Rows: 1, Cols: 4, Duration: 150, FrameDurations: []int{150, 150, 150, 150}, Chats: []string{"안녕!", "반가워."}},
-					{ID: "s2", Name: "기쁨", Rows: 1, Cols: 6, Duration: 100, FrameDurations: []int{100, 100, 100, 100, 100, 100}, Chats: []string{"히히!", "오늘 기분 좋아!"}},
-					{ID: "s3", Name: "슬픔", Rows: 1, Cols: 1, Duration: 150, FrameDurations: []int{150}, Chats: []string{}},
-					{ID: "s4", Name: "분노", Rows: 1, Cols: 1, Duration: 150, FrameDurations: []int{150}, Chats: []string{}},
+					{ID: "s1", Name: "기본", Chats: []string{"안녕!", "반가워."}},
+					{ID: "s2", Name: "기쁨", Chats: []string{"히히!", "오늘 기분 좋아!"}},
+					{ID: "s3", Name: "슬픔", Chats: []string{}},
+					{ID: "s4", Name: "분노", Chats: []string{}},
 				},
 			},
 		},

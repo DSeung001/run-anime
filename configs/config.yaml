@@ -7,6 +7,3 @@ server:
 overlay:
   width: 128
   height: 128
-
-# 스프라이트 목록 (path, rows/cols 또는 단일 이미지, 위치, 우선순위)
-sprites: []

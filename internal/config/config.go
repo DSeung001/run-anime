@@ -27,7 +27,7 @@ type ServerConfig struct {
 	Port int `yaml:"port"`
 }
 
-// SpriteEntry describes one sprite (sheet path, row/col, position, priority).
+// SpriteEntry describes one sprite entry (deprecated, kept for config compatibility).
 type SpriteEntry struct {
 	Path     string `yaml:"path"`
 	Rows     int    `yaml:"rows"`

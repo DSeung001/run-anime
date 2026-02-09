@@ -18,7 +18,7 @@
   "addState": "감정 추가",
   "stateName": "감정 이름",
   "duration": "기본 시간(ms)",
-  "uploadSprite": "스프라이트 이미지 업로드",
+  "uploadImg": "GIF, PNG, JPG 업로드",
   "selectFile": "파일 탐색 및 선택",
   "rows": "행(Rows)",
   "cols": "열(Cols)",
@@ -65,5 +65,10 @@
   "loading": "불러오는 중",
   "uploadLimit": "최대 10MB · PNG, JPEG, GIF, WebP",
   "uploadTooLarge": "파일이 너무 큽니다. 최대 10MB까지 업로드할 수 있습니다.",
-  "uploadInvalidType": "지원하지 않는 형식입니다. PNG, JPEG, GIF, WebP만 가능합니다."
+  "uploadInvalidType": "지원하지 않는 형식입니다. PNG, JPEG, GIF, WebP만 가능합니다.",
+  "gifDisposal": "GIF 프레임 처리 방식",
+  "gifDisposalDesc": "모든 프레임에 동일한 처리 방식을 적용합니다.",
+  "disposalNone": "누적 (이전 프레임 유지)",
+  "disposalBackground": "독립 프레임 (배경으로 복원)",
+  "disposalPrevious": "이전 상태로 복원"
 }

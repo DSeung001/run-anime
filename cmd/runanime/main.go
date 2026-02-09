@@ -20,6 +20,6 @@ func main() {
 	}
 
 	if err := overlay.Run(cfg); err != nil {
-		log.Fatal(err)
+		log.Fatalf("overlay: %v", err)
 	}
 }

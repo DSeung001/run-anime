@@ -9,40 +9,92 @@ export function Editor({ t, getTranslatedName }) {
   const [activeTab, setActiveTab] = useState('settings');
   const [tempAnime, setTempAnime] = useState(selectedAnime);
   const [selectedStateId, setSelectedStateId] = useState(selectedAnime?.states?.[0]?.id);
-  const [rowsStr, setRowsStr] = useState('');
-  const [colsStr, setColsStr] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const canvasRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0 });
   const initialRect = useRef({ x: 0, y: 0, w: 0, h: 0 });
+  
+  // Helper function to check if spritePath is a GIF
+  // Handles both uploaded files (data:image/gif) and saved files (anime/anime-xxx.gif)
+  const isGIFFile = (spritePath) => {
+    if (!spritePath) return false;
+    const lower = spritePath.toLowerCase().trim();
+    // Check for data URL with GIF mime type
+    if (lower.startsWith('data:image/gif')) return true;
+    // Check for file extension (handles both .gif and .GIF)
+    if (lower.endsWith('.gif')) return true;
+    // Check for GIF in path (handles paths like anime/anime-xxx.gif or /api/uploads/anime/anime-xxx.gif)
+    if (lower.includes('/gif') || lower.includes('\\gif')) return true;
+    // Check for image/gif mime type in any part of the string
+    if (lower.includes('image/gif')) return true;
+    return false;
+  };
 
   useEffect(() => {
     setTempAnime(selectedAnime);
     setSelectedStateId(selectedAnime?.states?.[0]?.id);
   }, [selectedAnime]);
 
+  if (!tempAnime) return null;
+
+  const activeState = tempAnime.states.find((s) => s.id === selectedStateId);
+  const currentMonitor = monitors.find((m) => m.id === tempAnime.monitorId) || monitors[0];
+
+  const toPxW = (val) => Math.round((val / 1000) * (currentMonitor?.width || 1920));
+  const toPxH = (val) => Math.round((val / 1000) * (currentMonitor?.height || 1080));
+
+  // Get position for the active state (or anime if state doesn't have position)
+  const getStatePosition = () => {
+    if (!activeState) {
+      return { x: tempAnime.x, y: tempAnime.y, width: tempAnime.width, height: tempAnime.height };
+    }
+    return {
+      x: activeState.x || tempAnime.x || 0,
+      y: activeState.y || tempAnime.y || 0,
+      width: activeState.width || tempAnime.width || 120,
+      height: activeState.height || tempAnime.height || 120,
+    };
+  };
+
+  const statePos = getStatePosition();
+
+  const updateState = useCallback((stateId, updates) => {
+    setTempAnime((prev) => {
+      const newStates = prev.states.map((s) => {
+        if (s.id !== stateId) return s;
+        return { ...s, ...updates };
+      });
+      return { ...prev, states: newStates };
+    });
+  }, []);
+
+  const updateStatePosition = useCallback((x, y, width, height) => {
+    if (!selectedStateId || !tempAnime) return;
+    const currentActiveState = tempAnime.states.find((s) => s.id === selectedStateId);
+    if (!currentActiveState) return;
+    updateState(selectedStateId, { x, y, width, height });
+  }, [selectedStateId, tempAnime, updateState]);
+
   const handleMouseMove = useCallback(
     (e) => {
       if ((!isDragging && !isResizing) || !canvasRef.current) return;
+      const currentActiveState = tempAnime?.states?.find((s) => s.id === selectedStateId);
+      if (!currentActiveState) return;
       const rect = canvasRef.current.getBoundingClientRect();
       const deltaX = ((e.clientX - rect.left - dragStart.current.x) / rect.width) * 1000;
       const deltaY = ((e.clientY - rect.top - dragStart.current.y) / rect.height) * 1000;
       if (isDragging) {
-        setTempAnime((p) => ({
-          ...p,
-          x: Math.max(0, Math.min(1000 - p.width, Math.round(initialRect.current.x + deltaX))),
-          y: Math.max(0, Math.min(1000 - p.height, Math.round(initialRect.current.y + deltaY))),
-        }));
+        const newX = Math.max(0, Math.min(1000 - initialRect.current.w, Math.round(initialRect.current.x + deltaX)));
+        const newY = Math.max(0, Math.min(1000 - initialRect.current.h, Math.round(initialRect.current.y + deltaY)));
+        updateStatePosition(newX, newY, initialRect.current.w, initialRect.current.h);
       } else {
-        setTempAnime((p) => ({
-          ...p,
-          width: Math.max(20, Math.min(1000 - p.x, Math.round(initialRect.current.w + deltaX))),
-          height: Math.max(20, Math.min(1000 - p.y, Math.round(initialRect.current.h + deltaY))),
-        }));
+        const newWidth = Math.max(20, Math.min(1000 - initialRect.current.x, Math.round(initialRect.current.w + deltaX)));
+        const newHeight = Math.max(20, Math.min(1000 - initialRect.current.y, Math.round(initialRect.current.h + deltaY)));
+        updateStatePosition(initialRect.current.x, initialRect.current.y, newWidth, newHeight);
       }
     },
-    [isDragging, isResizing]
+    [isDragging, isResizing, tempAnime, selectedStateId, updateStatePosition]
   );
 
   useEffect(() => {
@@ -58,42 +110,10 @@ export function Editor({ t, getTranslatedName }) {
     };
   }, [handleMouseMove]);
 
-  const stateForSync = tempAnime?.states?.find((s) => s.id === selectedStateId);
-  useEffect(() => {
-    if (stateForSync) {
-      setRowsStr(String(stateForSync.rows));
-      setColsStr(String(stateForSync.cols));
-    }
-  }, [selectedStateId, stateForSync?.rows, stateForSync?.cols]);
-
-  if (!tempAnime) return null;
-
-  const activeState = tempAnime.states.find((s) => s.id === selectedStateId);
-  const currentMonitor = monitors.find((m) => m.id === tempAnime.monitorId) || monitors[0];
-
-  const toPxW = (val) => Math.round((val / 1000) * (currentMonitor?.width || 1920));
-  const toPxH = (val) => Math.round((val / 1000) * (currentMonitor?.height || 1080));
-
-  const updateState = (stateId, updates) => {
-    const newStates = tempAnime.states.map((s) => {
-      if (s.id !== stateId) return s;
-      const newState = { ...s, ...updates };
-      if (updates.rows !== undefined || updates.cols !== undefined) {
-        const newCount = (updates.rows ?? s.rows) * (updates.cols ?? s.cols);
-        const newDurations = [...(newState.frameDurations || [])];
-        while (newDurations.length < newCount) newDurations.push(newState.duration || 150);
-        if (newDurations.length > newCount) newDurations.length = newCount;
-        newState.frameDurations = newDurations;
-      }
-      return newState;
-    });
-    setTempAnime({ ...tempAnime, states: newStates });
-  };
-
   const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MiB (matches server)
   const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
 
-  const handleSpriteUpload = (e) => {
+  const handleSpriteUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !activeState) return;
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -106,22 +126,37 @@ export function Editor({ t, getTranslatedName }) {
       e.target.value = '';
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (reader.result) updateState(activeState.id, { spritePath: reader.result });
-    };
-    reader.onerror = () => alert(reader.error?.message || 'Failed to read file');
-    reader.readAsDataURL(file);
+    // Convert file to base64 data URL for temporary storage
+    // Actual upload will happen when save button is clicked
+    try {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataURL = event.target.result;
+        const updates = { spritePath: dataURL };
+        // If it's a GIF and gifDisposal doesn't exist, initialize with default
+        if (file.type === 'image/gif' && (!activeState.gifDisposal || activeState.gifDisposal.length === 0)) {
+          // Will be set properly by backend on save, but initialize here for UI
+          updates.gifDisposal = [0]; // Default to DisposalNone
+        }
+        updateState(activeState.id, updates);
+      };
+      reader.onerror = () => {
+        alert('Failed to read file');
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      alert(err.message || 'Failed to read file');
+    }
     e.target.value = '';
   };
 
   const startOp = (e, type) => {
-    if (!canvasRef.current) return;
+    if (!canvasRef.current || !activeState) return;
     const rect = canvasRef.current.getBoundingClientRect();
     if (type === 'drag') setIsDragging(true);
     else setIsResizing(true);
     dragStart.current = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-    initialRect.current = { x: tempAnime.x, y: tempAnime.y, w: tempAnime.width, h: tempAnime.height };
+    initialRect.current = { x: statePos.x, y: statePos.y, w: statePos.width, h: statePos.height };
     e.stopPropagation();
   };
 
@@ -137,10 +172,22 @@ export function Editor({ t, getTranslatedName }) {
     alert(t.saveAlert);
   };
 
-  const handleDeleteAnime = () => {
+  const handleDeleteAnime = async () => {
     if (!window.confirm(t.confirmDelete)) return;
+    
+    // Calculate updated animes array before state update
+    const updatedAnimes = animes.filter((a) => a.id !== tempAnime.id);
+    
+    // Save to backend
+    const err = await saveSettings({ animes: updatedAnimes });
+    if (err) {
+      alert(t.saveError || err);
+      return;
+    }
+    
+    // Update state and switch UI after successful save
     dispatch({ type: 'REMOVE_ANIME', payload: tempAnime.id });
-    saveSettings();
+    dispatch({ type: 'SET_VIEW', payload: 'list' });
   };
 
   const stateSettingsLabel =
@@ -259,10 +306,6 @@ export function Editor({ t, getTranslatedName }) {
                             id,
                             name: t.newState,
                             spritePath: '',
-                            rows: 1,
-                            cols: 1,
-                            duration: 150,
-                            frameDurations: [150],
                             chats: [],
                           },
                         ],
@@ -321,192 +364,124 @@ export function Editor({ t, getTranslatedName }) {
                         <span>{t.deleteState}</span>
                       </button>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
-                          {t.stateName}
-                        </label>
-                        <input
-                          type="text"
-                          value={activeState.name}
-                          onChange={(e) => updateState(activeState.id, { name: e.target.value })}
-                          className={`w-full p-2 mt-1 rounded bg-transparent border text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
-                            isDarkMode ? 'border-gray-800' : 'border-gray-200 bg-white'
-                          }`}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{t.rows}</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={rowsStr}
-                          onChange={(e) => setRowsStr(e.target.value)}
-                          onBlur={() => {
-                            const n = parseInt(rowsStr, 10);
-                            const v = Number.isNaN(n) || n < 1 ? 1 : n;
-                            updateState(activeState.id, { rows: v });
-                            setRowsStr(String(v));
-                          }}
-                          className={`w-full p-2 mt-1 rounded bg-transparent border text-sm outline-none focus:ring-1 focus:ring-blue-500 ${isDarkMode ? 'border-gray-800' : 'border-gray-200 bg-white'}`}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">{t.cols}</label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={colsStr}
-                          onChange={(e) => setColsStr(e.target.value)}
-                          onBlur={() => {
-                            const n = parseInt(colsStr, 10);
-                            const v = Number.isNaN(n) || n < 1 ? 1 : n;
-                            updateState(activeState.id, { cols: v });
-                            setColsStr(String(v));
-                          }}
-                          className={`w-full p-2 mt-1 rounded bg-transparent border text-sm outline-none focus:ring-1 focus:ring-blue-500 ${isDarkMode ? 'border-gray-800' : 'border-gray-200 bg-white'}`}
-                        />
-                      </div>
+                    <div>
+                      <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
+                        {t.stateName}
+                      </label>
+                      <input
+                        type="text"
+                        value={activeState.name}
+                        onChange={(e) => updateState(activeState.id, { name: e.target.value })}
+                        className={`w-full p-2 mt-1 rounded bg-transparent border text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
+                          isDarkMode ? 'border-gray-800' : 'border-gray-200 bg-white'
+                        }`}
+                      />
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_1.4fr] gap-8">
-                      <div className="space-y-3">
-                        <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
-                          {t.uploadSprite}
-                        </label>
-                        <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
-                          {t.uploadLimit}
-                        </p>
-                        <div
-                          className={`relative h-48 rounded-xl border-2 border-dashed flex flex-col items-center justify-center space-y-2 overflow-hidden sprite-preview-grid group transition-all hover:border-blue-500/50 ${
-                            isDarkMode
-                              ? 'border-gray-800 dark-grid'
-                              : 'border-blue-100 light-grid bg-white shadow-inner'
-                          }`}
-                        >
-                          {activeState.spritePath ? (
-                            <img
-                              src={
-                                activeState.spritePath.startsWith('data:') || activeState.spritePath.startsWith('/')
-                                  ? activeState.spritePath
-                                  : `/api/uploads/${activeState.spritePath}`
-                              }
-                              className="h-full object-contain z-10 p-2"
-                              alt="Sprite preview"
-                            />
-                          ) : (
-                            <div className="flex flex-col items-center opacity-30 group-hover:opacity-100 group-hover:text-blue-500 transition-all">
-                              <Icon name="Image" size={32} />
-                              <span className="text-[11px] font-bold mt-2 uppercase">{t.selectFile}</span>
-                            </div>
-                          )}
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
-                            onChange={handleSpriteUpload}
-                            className="absolute inset-0 opacity-0 cursor-pointer z-20"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center">
-                          <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
-                            {t.frameTiming}
-                          </label>
-                          <Badge isDarkMode={isDarkMode}>{activeState.rows * activeState.cols} Frames</Badge>
-                        </div>
+                    <div className="space-y-3">
+                      <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
+                        {t.uploadImg}
+                      </label>
+                      <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                        {t.uploadLimit}
+                      </p>
+                      <div
+                        className={`relative h-48 rounded-xl border-2 border-dashed flex flex-col items-center justify-center space-y-2 overflow-hidden sprite-preview-grid group transition-all hover:border-blue-500/50 ${
+                          isDarkMode
+                            ? 'border-gray-800 dark-grid'
+                            : 'border-blue-100 light-grid bg-white shadow-inner'
+                        }`}
+                      >
                         {activeState.spritePath ? (
-                          <div
-                            className={`border rounded-xl p-3 overflow-y-auto dark-scrollbar ${
-                              isDarkMode ? 'bg-black/20 border-gray-800/50' : 'bg-white border-gray-100 shadow-inner'
-                            }`}
-                            style={{ maxHeight: '320px' }}
-                          >
-                            <div
-                              className="grid grid-cols-3 gap-3 w-full"
-                            >
-                              {activeState.frameDurations.map((dur, i) => {
-                                const spriteUrl =
-                                  activeState.spritePath.startsWith('data:') ||
-                                  activeState.spritePath.startsWith('/')
-                                    ? activeState.spritePath
-                                    : `/api/uploads/${activeState.spritePath}`;
-                                const col = i % activeState.cols;
-                                const row = Math.floor(i / activeState.cols);
-                                const x =  `${col * (100 / (activeState.cols > 1 ? activeState.cols - 1 : 1))}%`
-                                const y = `${row * (100 / (activeState.rows > 1 ? activeState.rows - 1 : 1))}%`
-                                const bgSize = `${activeState.cols * 100}% ${activeState.rows * 100}%`;
-                                const bgPos = `${x} ${y}`;
-                                return (
-                                  <div
-                                    key={i}
-                                    className={`flex flex-col rounded-lg border overflow-hidden transition-shadow hover:shadow-md ${
-                                      isDarkMode ? 'bg-gray-800/40 border-gray-700/50' : 'bg-gray-50 border-gray-200'
-                                    }`}
-                                  >
-                                    <div
-                                      className="w-full bg-gray-900/30 bg-no-repeat bg-top-left"
-                                      style={{
-                                        aspectRatio: `${activeState.cols} / ${activeState.rows}`,
-                                        backgroundImage: `url(${spriteUrl})`,
-                                        backgroundSize: bgSize,
-                                        backgroundPosition: bgPos,
-                                      }}
-                                      title={`Frame ${i + 1}`}
-                                    />
-                                    <div className="p-1.5 flex items-center gap-1.5 border-t border-gray-700/30">
-                                      <span className="text-[9px] font-mono opacity-50 shrink-0">#{i + 1}</span>
-                                      <input
-                                        type="number"
-                                        min="0"
-                                        value={dur}
-                                        onChange={(e) => {
-                                          const newDurs = [...activeState.frameDurations];
-                                          newDurs[i] = parseInt(e.target.value, 10) || 0;
-                                          updateState(activeState.id, { frameDurations: newDurs });
-                                        }}
-                                        className={`flex-1 min-w-0 text-[11px] font-mono font-bold rounded px-1 py-0.5 outline-none focus:ring-1 focus:ring-blue-500 ${
-                                          isDarkMode
-                                            ? 'bg-gray-800 text-blue-400'
-                                            : 'bg-white border border-gray-200 text-blue-600'
-                                        }`}
-                                      />
-                                      <span className="text-[9px] opacity-40 shrink-0">ms</span>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
+                          <img
+                            src={
+                              activeState.spritePath.startsWith('data:') || activeState.spritePath.startsWith('/')
+                                ? activeState.spritePath
+                                : `/api/uploads/${activeState.spritePath}`
+                            }
+                            className="h-full object-contain z-10 p-2"
+                            alt="Sprite preview"
+                          />
                         ) : (
-                          <div
-                            className={`max-h-48 overflow-y-auto dark-scrollbar border rounded-xl p-3 grid grid-cols-2 gap-2 ${
-                              isDarkMode ? 'bg-black/20 border-gray-800/50' : 'bg-white border-gray-100 shadow-inner'
-                            }`}
-                          >
-                            {activeState.frameDurations.map((dur, i) => (
-                              <div
-                                key={i}
-                                className={`flex items-center space-x-2 p-1.5 rounded border transition-shadow hover:shadow-sm ${
-                                  isDarkMode ? 'bg-gray-800/40 border-gray-700/50' : 'bg-gray-50 border-gray-100'
-                                }`}
-                              >
-                                <span className="text-[9px] font-mono opacity-40 w-4">#{i + 1}</span>
-                                <input
-                                  type="number"
-                                  value={dur}
-                                  onChange={(e) => {
-                                    const newDurs = [...activeState.frameDurations];
-                                    newDurs[i] = parseInt(e.target.value) || 0;
-                                    updateState(activeState.id, { frameDurations: newDurs });
-                                  }}
-                                  className="bg-transparent text-[11px] font-mono outline-none w-full text-blue-500 font-bold"
-                                />
-                              </div>
-                            ))}
+                          <div className="flex flex-col items-center opacity-30 group-hover:opacity-100 group-hover:text-blue-500 transition-all">
+                            <Icon name="Image" size={32} />
+                            <span className="text-[11px] font-bold mt-2 uppercase">{t.selectFile}</span>
                           </div>
                         )}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                          onChange={handleSpriteUpload}
+                          className="absolute inset-0 opacity-0 cursor-pointer z-20"
+                        />
                       </div>
                     </div>
+                    {/* GIF Disposal Settings - Always show if GIF file */}
+                    {activeState.spritePath && isGIFFile(activeState.spritePath) && (
+                      <div className="space-y-3">
+                        <label className="text-[10px] font-bold opacity-40 uppercase tracking-widest">
+                          {t.gifDisposal}
+                        </label>
+                        <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                          {t.gifDisposalDesc}
+                        </p>
+                        <select
+                          value={activeState.gifDisposal && activeState.gifDisposal.length > 0 ? activeState.gifDisposal[0] : 0}
+                          onChange={async (e) => {
+                            const selectedValue = parseInt(e.target.value, 10);
+                            let frameCount = activeState.gifDisposal?.length || 0;
+                            
+                            // If gifDisposal doesn't exist, try to get frame count from the GIF file
+                            if (frameCount === 0) {
+                              try {
+                                const imageUrl = activeState.spritePath.startsWith('data:') || activeState.spritePath.startsWith('/')
+                                  ? activeState.spritePath
+                                  : `/api/uploads/${activeState.spritePath}`;
+                                
+                                // Create an image element to check if it's a GIF
+                                const img = new Image();
+                                img.src = imageUrl;
+                                
+                                // For GIFs, we can't easily get frame count from frontend
+                                // So we'll use a default frame count and let backend update it
+                                // Or we can make an API call to get frame count
+                                // For now, use a reasonable default (will be updated by backend on save)
+                                frameCount = 1; // Default, will be corrected by backend
+                              } catch (err) {
+                                console.error('Failed to get GIF frame count:', err);
+                                frameCount = 1; // Fallback to 1 frame
+                              }
+                            }
+                            
+                            // Apply selected disposal method to all frames
+                            const newDisposal = new Array(frameCount).fill(selectedValue);
+                            updateState(activeState.id, { gifDisposal: newDisposal });
+                          }}
+                          className={`w-full p-2 mt-1 rounded bg-transparent border text-sm outline-none focus:ring-1 focus:ring-blue-500 ${
+                            isDarkMode ? 'border-gray-800 text-white' : 'border-gray-200 text-gray-900 bg-white'
+                          }`}
+                        >
+                          <option value={0} className={isDarkMode ? 'bg-[#0d1117]' : 'bg-white'}>
+                            {t.disposalNone}
+                          </option>
+                          <option value={1} className={isDarkMode ? 'bg-[#0d1117]' : 'bg-white'}>
+                            {t.disposalBackground}
+                          </option>
+                          <option value={2} className={isDarkMode ? 'bg-[#0d1117]' : 'bg-white'}>
+                            {t.disposalPrevious}
+                          </option>
+                        </select>
+                        {activeState.gifDisposal && activeState.gifDisposal.length > 0 && (
+                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            {activeState.gifDisposal.length} {lang === 'ko' ? '프레임' : 'frames'}
+                          </p>
+                        )}
+                        {(!activeState.gifDisposal || activeState.gifDisposal.length === 0) && (
+                          <p className={`text-[10px] ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>
+                            {lang === 'ko' ? '저장 시 프레임 수가 자동으로 업데이트됩니다.' : 'Frame count will be updated automatically on save.'}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </section>
@@ -541,53 +516,131 @@ export function Editor({ t, getTranslatedName }) {
                     ))}
                   </div>
                 )}
-                <div
-                  onMouseDown={(e) => startOp(e, 'drag')}
-                  style={{
-                    left: `${tempAnime.x / 10}%`,
-                    top: `${tempAnime.y / 10}%`,
-                    width: `${tempAnime.width / 10}%`,
-                    height: `${tempAnime.height / 10}%`,
-                  }}
-                  className="absolute bg-blue-500/30 border-2 border-blue-500 flex items-center justify-center cursor-move shadow-xl group transition-transform active:scale-[0.99]"
-                >
-                  <Icon name="User" size={24} className="text-blue-500 opacity-60" />
+                {activeState && (
                   <div
-                    onMouseDown={(e) => startOp(e, 'resize')}
-                    className="absolute -bottom-1 -right-1 w-4 h-4 bg-blue-600 rounded-sm cursor-nwse-resize border border-white/20 shadow-md transition-transform hover:scale-125"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-8 pt-4">
-                <div className="space-y-4">
-                  <div className="flex justify-between items-baseline">
-                    <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.horPos}</label>
-                    <span className="font-mono text-blue-500 font-bold">{toPxW(tempAnime.x)}px</span>
+                    onMouseDown={(e) => startOp(e, 'drag')}
+                    style={{
+                      left: `${statePos.x / 10}%`,
+                      top: `${statePos.y / 10}%`,
+                      width: `${statePos.width / 10}%`,
+                      height: `${statePos.height / 10}%`,
+                    }}
+                    className="absolute bg-blue-500/30 border-2 border-blue-500 flex items-center justify-center cursor-move shadow-xl group transition-transform active:scale-[0.99]"
+                  >
+                    <Icon name="User" size={24} className="text-blue-500 opacity-60" />
+                    <div
+                      onMouseDown={(e) => startOp(e, 'resize')}
+                      className="absolute -bottom-1 -right-1 w-4 h-4 bg-blue-600 rounded-sm cursor-nwse-resize border border-white/20 shadow-md transition-transform hover:scale-125"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1000"
-                    value={tempAnime.x}
-                    onChange={(e) => setTempAnime({ ...tempAnime, x: parseInt(e.target.value) })}
-                    className="w-full"
-                  />
-                </div>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-baseline">
-                    <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.verPos}</label>
-                    <span className="font-mono text-blue-500 font-bold">{toPxH(tempAnime.y)}px</span>
-                  </div>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1000"
-                    value={tempAnime.y}
-                    onChange={(e) => setTempAnime({ ...tempAnime, y: parseInt(e.target.value) })}
-                    className="w-full"
-                  />
-                </div>
+                )}
               </div>
+              {activeState && (
+                <>
+                  <div className="grid grid-cols-2 gap-8 pt-4">
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-baseline">
+                        <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.horPos}</label>
+                        <span className="font-mono text-blue-500 font-bold">{toPxW(statePos.x)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1000"
+                        value={statePos.x}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          updateStatePosition(val, statePos.y, statePos.width, statePos.height);
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-baseline">
+                        <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.verPos}</label>
+                        <span className="font-mono text-blue-500 font-bold">{toPxH(statePos.y)}px</span>
+                      </div>
+                      <input
+                        type="range"
+                        min="0"
+                        max="1000"
+                        value={statePos.y}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          updateStatePosition(statePos.x, val, statePos.width, statePos.height);
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-8 pt-4">
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-baseline">
+                        <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.width}</label>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min="20"
+                            max="1000"
+                            value={statePos.width}
+                            onChange={(e) => {
+                              const val = Math.max(20, Math.min(1000, parseInt(e.target.value) || 20));
+                              updateStatePosition(statePos.x, statePos.y, val, statePos.height);
+                            }}
+                            className={`w-20 p-1.5 rounded bg-transparent border text-sm text-right font-mono ${
+                              isDarkMode ? 'border-gray-700 text-white' : 'border-gray-200 text-gray-900'
+                            }`}
+                          />
+                          <span className="font-mono text-blue-500 font-bold text-xs">{toPxW(statePos.width)}px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="1000"
+                        value={statePos.width}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          updateStatePosition(statePos.x, statePos.y, val, statePos.height);
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-baseline">
+                        <label className="text-xs font-bold opacity-50 uppercase tracking-widest">{t.height}</label>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="number"
+                            min="20"
+                            max="1000"
+                            value={statePos.height}
+                            onChange={(e) => {
+                              const val = Math.max(20, Math.min(1000, parseInt(e.target.value) || 20));
+                              updateStatePosition(statePos.x, statePos.y, statePos.width, val);
+                            }}
+                            className={`w-20 p-1.5 rounded bg-transparent border text-sm text-right font-mono ${
+                              isDarkMode ? 'border-gray-700 text-white' : 'border-gray-200 text-gray-900'
+                            }`}
+                          />
+                          <span className="font-mono text-blue-500 font-bold text-xs">{toPxH(statePos.height)}px</span>
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min="20"
+                        max="1000"
+                        value={statePos.height}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          updateStatePosition(statePos.x, statePos.y, statePos.width, val);
+                        }}
+                        className="w-full"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </div>

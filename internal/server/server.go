@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -148,6 +149,35 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 			curAnimeByID[a.ID] = a
 		}
 	}
+	// Track which states exist in the new settings
+	newStateIDs := make(map[string]bool)
+	for i := range body.Animes {
+		for j := range body.Animes[i].States {
+			newStateIDs[body.Animes[i].States[j].ID] = true
+		}
+	}
+	// Track which animes exist in the new settings
+	newAnimeIDs := make(map[string]bool)
+	for i := range body.Animes {
+		newAnimeIDs[body.Animes[i].ID] = true
+	}
+	// Remove files for deleted animes
+	if cur != nil {
+		for _, oldAnime := range cur.Animes {
+			if !newAnimeIDs[oldAnime.ID] {
+				// Anime was deleted, remove all its state files
+				for _, oldState := range oldAnime.States {
+					oldRel := relPath(oldState.SpritePath)
+					if oldRel != "" {
+						if err := storage.RemoveUpload(oldRel); err != nil {
+							log.Printf("remove deleted anime image: %v", err)
+						}
+					}
+				}
+			}
+		}
+	}
+	// Handle state changes and deletions
 	for i := range body.Animes {
 		curAnime := curAnimeByID[body.Animes[i].ID]
 		for j := range body.Animes[i].States {
@@ -163,13 +193,52 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 			newRel := relPath(body.Animes[i].States[j].SpritePath)
 			oldRel := relPath(old)
 			if oldRel != "" && newRel != "" && oldRel != newRel {
+				// State image changed, remove old file
 				if err := storage.RemoveUpload(oldRel); err != nil {
-					log.Printf("remove old sprite: %v", err)
+					log.Printf("remove old image: %v", err)
+				}
+			}
+		}
+		// Remove files for deleted states in existing animes
+		if curAnime != nil {
+			for _, oldState := range curAnime.States {
+				if !newStateIDs[oldState.ID] {
+					// State was deleted, remove its file
+					oldRel := relPath(oldState.SpritePath)
+					if oldRel != "" {
+						if err := storage.RemoveUpload(oldRel); err != nil {
+							log.Printf("remove deleted state image: %v", err)
+						}
+					}
 				}
 			}
 		}
 	}
 	// Save base64 images to storage and replace with relative paths (category/filename)
+	// Delete old files before saving new base64 images (same pattern as background images)
+	for i := range body.Animes {
+		for j := range body.Animes[i].States {
+			if strings.HasPrefix(body.Animes[i].States[j].SpritePath, "data:") {
+				// Find old spritePath before saving new image
+				old := ""
+				if curAnimeByID[body.Animes[i].ID] != nil {
+					for k := range curAnimeByID[body.Animes[i].ID].States {
+						if curAnimeByID[body.Animes[i].ID].States[k].ID == body.Animes[i].States[j].ID {
+							old = curAnimeByID[body.Animes[i].ID].States[k].SpritePath
+							break
+						}
+					}
+				}
+				oldRel := relPath(old)
+				if oldRel != "" {
+					// Delete old file before saving new base64 image
+					if err := storage.RemoveUpload(oldRel); err != nil {
+						log.Printf("remove old anime image: %v", err)
+					}
+				}
+			}
+		}
+	}
 	for i := range body.Monitors {
 		if strings.HasPrefix(body.Monitors[i].BackgroundImage, "data:") {
 			rel, err := storage.SaveBase64Image(body.Monitors[i].BackgroundImage, storage.CategoryBackgrounds)
@@ -183,12 +252,41 @@ func postSettings(w http.ResponseWriter, r *http.Request) {
 	for i := range body.Animes {
 		for j := range body.Animes[i].States {
 			if strings.HasPrefix(body.Animes[i].States[j].SpritePath, "data:") {
-				rel, err := storage.SaveBase64Image(body.Animes[i].States[j].SpritePath, storage.CategorySprites)
+				// Extract GIF disposal information before saving
+				disposal, err := storage.ExtractGIFDisposal(body.Animes[i].States[j].SpritePath)
+				if err == nil && disposal != nil {
+					body.Animes[i].States[j].GIFDisposal = disposal
+				}
+
+				rel, err := storage.SaveBase64Image(body.Animes[i].States[j].SpritePath, storage.CategoryAnime)
 				if err != nil {
-					log.Printf("save sprite: %v", err)
+					log.Printf("save anime: %v", err)
 					continue
 				}
 				body.Animes[i].States[j].SpritePath = rel
+			} else if body.Animes[i].States[j].SpritePath != "" {
+				// Normalize disposal for existing GIF files
+				rel := relPath(body.Animes[i].States[j].SpritePath)
+				if rel != "" {
+					ext := strings.ToLower(filepath.Ext(rel))
+					if ext == ".gif" {
+						uploadDir, err := storage.Dir()
+						if err == nil {
+							absPath := filepath.Join(uploadDir, filepath.FromSlash(rel))
+							// Check if file exists and is a GIF
+							if _, err := os.Stat(absPath); err == nil {
+								// If disposal is set, normalize it to match frame count
+								if len(body.Animes[i].States[j].GIFDisposal) > 0 {
+									selectedValue := body.Animes[i].States[j].GIFDisposal[0]
+									normalized, err := storage.NormalizeGIFDisposal(absPath, selectedValue)
+									if err == nil {
+										body.Animes[i].States[j].GIFDisposal = normalized
+									}
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -222,12 +320,12 @@ func handleUpload(w http.ResponseWriter, r *http.Request) {
 	categoryForm := strings.TrimSpace(strings.ToLower(r.FormValue("category")))
 	var storageCategory string
 	switch categoryForm {
-	case "sprite":
-		storageCategory = storage.CategorySprites
 	case "background":
 		storageCategory = storage.CategoryBackgrounds
+	case "anime":
+		storageCategory = storage.CategoryAnime
 	default:
-		http.Error(w, "category must be sprite or background", http.StatusBadRequest)
+		http.Error(w, "category must be background or anime", http.StatusBadRequest)
 		return
 	}
 	ct := header.Header.Get("Content-Type")
