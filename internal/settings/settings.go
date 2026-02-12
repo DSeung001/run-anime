@@ -83,6 +83,13 @@ func Load() (*Settings, error) {
 	if len(s.Animes) == 0 {
 		s.Animes = Default().Animes
 	}
+	// 애니메에 states가 비어 있으면 기본 상태를 채워 오버레이/UI에서 스프라이트를 할당할 수 있게 함
+	defaultStates := Default().Animes[0].States
+	for i := range s.Animes {
+		if len(s.Animes[i].States) == 0 {
+			s.Animes[i].States = defaultStates
+		}
+	}
 	// Apply defaults for UI preferences when missing (e.g. old settings file)
 	if s.Language == "" {
 		s.Language = "ko"

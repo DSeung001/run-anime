@@ -501,6 +501,7 @@ export function Editor({ t, getTranslatedName }) {
                 ref={canvasRef}
                 style={{
                   aspectRatio: `${currentMonitor?.width || 16}/${currentMonitor?.height || 9}`,
+                  minHeight: 200,
                   backgroundImage: currentMonitor?.backgroundImage ? `url(${currentMonitor.backgroundImage})` : 'none',
                   backgroundSize: 'cover',
                   backgroundPosition: 'center',
@@ -508,6 +509,7 @@ export function Editor({ t, getTranslatedName }) {
                 className={`relative w-full border rounded-lg overflow-hidden select-none shadow-inner transition-colors ${
                   isDarkMode ? 'border-gray-800 bg-black/40' : 'border-gray-200 bg-gray-100'
                 }`}
+                title={lang === 'ko' ? '크기·위치는 모니터 기준(0–1000)이며 실제 오버레이와 동일합니다.' : 'Size and position use monitor scale (0–1000) and match the overlay.'}
               >
                 {!currentMonitor?.backgroundImage && (
                   <div className="absolute inset-0 grid grid-cols-12 grid-rows-6 opacity-10 pointer-events-none">

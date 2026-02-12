@@ -209,49 +209,10 @@ func loadInstancesFromSettings() ([]*animeInstance, int, int) {
 		return nil, 0, 0
 	}
 	mon := s.Monitors[0]
-	// Calculate overlay size based on all state positions
-	// Find the maximum width and height needed to contain all states on this monitor
-	overlayW := minOverlaySize
-	overlayH := minOverlaySize
-	for _, a := range s.Animes {
-		if a.MonitorID != mon.ID {
-			continue
-		}
-		// Check all states for this anime
-		for _, state := range a.States {
-			if state.SpritePath == "" {
-				continue
-			}
-			// Use state position if available, otherwise use anime position
-			x := state.X
-			y := state.Y
-			width := state.Width
-			height := state.Height
-			if x == 0 {
-				x = a.X
-			}
-			if y == 0 {
-				y = a.Y
-			}
-			if width == 0 {
-				width = a.Width
-			}
-			if height == 0 {
-				height = a.Height
-			}
-			// Calculate the rightmost and bottommost positions
-			// X, Y, Width, Height are in per-mille (0-1000) of monitor size
-			// Convert to pixels based on monitor size
-			rightEdge := (x + width) * mon.Width / 1000
-			bottomEdge := (y + height) * mon.Height / 1000
-			if rightEdge > overlayW {
-				overlayW = rightEdge
-			}
-			if bottomEdge > overlayH {
-				overlayH = bottomEdge
-			}
-		}
-	}
+	// 오버레이 창 크기 = 모니터 해상도. (x,y,w,h)는 모니터 기준 per-mille(0-1000)이므로
+	// 웹 미리보기와 동일한 좌표계로 그리면 실제 표시와 설정 화면이 일치한다.
+	overlayW := mon.Width
+	overlayH := mon.Height
 	if overlayW < minOverlaySize {
 		overlayW = minOverlaySize
 	}
